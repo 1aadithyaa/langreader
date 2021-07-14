@@ -405,6 +405,7 @@ def scrape_news_site(url_list, language='english', text_type='news'):
     
     return article_list
 
+
 def ongoing_scrape():
     with open('langreadre/scrape/rss.txt', 'r') as f:
         url_list = f.readlines()
@@ -426,6 +427,7 @@ def ongoing_scrape():
         
         # wait until next hour
         pause.until(datetime.now().replace(microsecond=0, second=0, minute=0) + timedelta(hours=1))
+
 
 if __name__ == '__main__':
     get_times_articles()

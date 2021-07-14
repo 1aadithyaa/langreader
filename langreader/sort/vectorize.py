@@ -10,6 +10,7 @@ import pickle
 from abc import ABC, abstractmethod
 import os
 from os import path
+from nltk.corpus import stopwords
 
 stemmer = SnowballStemmer('english')
 
@@ -38,19 +39,21 @@ def preprocess(text):
     processed_text = [stemmer.stem(word) for word in processed_text]
     return processed_text
 
+modified_stopwords = set(preprocess(" ".join(stopwords.words('english'))))
 
-def relative_frequency_vector(text, fv=None, ret_new_characteristics=False, normalize=True):
+def relative_frequency_vector(text, fv=None, ret_new_characteristics=False, normalize=True, remove_stopwords=False):
     if fv is None:
         fv = {}
     # preprocessing the texts before we add them to the dictionary
     processed_text = preprocess(text)
     for word in processed_text:
-        # if not already in frequency vector, initialize a value of 1
-        if word not in fv:
-            fv[word] = 1
-        # if its already in there, increment the value
-        else:
-            fv[word] += 1
+        if not (remove_stopwords and word in modified_stopwords):
+            # if not already in frequency vector, initialize a value of 1
+            if word not in fv:
+                fv[word] = 1
+            # if its already in there, increment the value
+            else:
+                fv[word] += 1
 
     total = 0
     for value in fv.values():
@@ -67,11 +70,19 @@ def relative_frequency_vector(text, fv=None, ret_new_characteristics=False, norm
     return fv
 
 
-def get_indexed_global_vector(file_path="langreader/sort/resources/global_vector.p"):  # run make_global_vector first before running global_vector!!!
+def get_indexed_global_vector(file_path="langreader/sort/resources/global_vector.p", remove_stopwords=False):  # run make_global_vector first before running global_vector!!!
     if not path.exists(file_path):
         make_global_vector()
     vector = pickle.load(open(file_path, "rb"))
     print('making indexed... ', end='', flush=True)
+    if remove_stopwords:
+        delete_set = set()
+        for key in vector.keys():
+            if key in modified_stopwords:
+                delete_set.add(key)
+        for delete_key in delete_set:
+            del vector[delete_key]
+
     index = 0
     for key, value in vector.items():
         vector[key] = (value, index)

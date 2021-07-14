@@ -6,13 +6,15 @@ import sqlite3
 import random
 import corpus
 from dictionary import find_def
+import pickle
+import langreader.sort.prelim_sort as ps
 
 # DB Management
 conn1 = sqlite3.connect("resources/sqlite/corpus.sqlite")
 c1 = conn1.cursor()
 
 # session state
-ss = session.get(username=None, loggedIn=False, index=None, button_submitted=False, done_setting_up=False, 
+ss = session.get(user_info=None, index=None, button_submitted=False, done_setting_up=False, 
     corpus_length=None, order_strings=None, text_type=None,
     params=None) # TODO: add a language variable
 
@@ -45,6 +47,7 @@ def initialization():
 
         set_ss(last_index)
 
+
 def main():
     global ss
     st.markdown(
@@ -54,13 +57,25 @@ def main():
             max-width: 70%;
         }}
     </style>
+    
     """,
             unsafe_allow_html=True,
         )
+    
+    st.write('<style>div.row-widget.stRadio > div{flex-direction:row;}</style>', unsafe_allow_html=True) # turn streamlit radio buttons horizontal
+    st.markdown(
+        """ <style>
+                div[role="radiogroup"] >  :first-child{
+                    display: none !important;
+                }
+            </style>
+            """,
+        unsafe_allow_html=True
+    ) # don't display the first radio button  
 
     st.title("Project READ")
 
-    if not ss.loggedIn:
+    if not ss.user_info:
         menu = ["Home", "Login", "Signup"]
         choice = st.sidebar.selectbox("Menu", menu)
 
@@ -75,7 +90,7 @@ def main():
         
         st.info("You are currently not logged in. Head to the Login tab on the sidebar menu.")
         
-        welcome_text = """Welcome! Project READ is an up-incoming application that enables English learners to enhance their reading comprehension in a fun, relevant context. Our platform provides short written pieces tailored to a user's interests and is designed to be used in <10 minutes each day."""
+        welcome_text = """Welcome! Project READ is an up-and-coming application that enables English learners to enhance their reading comprehension in a fun, relevant context. Our platform provides short written pieces tailored to a user's interests and is designed to be used in <10 minutes each day."""
         
         st.write(welcome_text + "\n")
         st.write("**Diverse Corpus:** Users have access to a wide range of texts from short stories to news articles to poems.\n")
@@ -95,22 +110,28 @@ def main():
         elif choice == "Sign Out":
             if st.sidebar.button("Log out"):
                 reset()
-        
         initialization()
 
-        run_application()
+        if ss.user_info[7]: # 7 > first_time
+            st.write("Hello, {}! For us to recommend you texts that accurately match your readability, we need to know a little bit more about your English language skills.".format(ss.user_info[1])) # 1 > username
+            st.write("What language level are you?")
+            language_level = st.radio("CEFR Language Levels", ["-", "A1", "A2", "B1", "B2", "C1", "C2"])
+            if language_level != "-":
+                word_vector = ps.get_baseline_profile_from_level(language_level)
+                print(display_checklist(ps.get_weighted_random_words_from_profile(word_vector, 1000, 50)))
+        else:
+            run_application()
 
-# --username/password management--
-def create_usertable():
-    c1.execute('''        
-    CREATE TABLE IF NOT EXISTS UsersTable(
-        user_id INTEGER PRIMARY KEY,
-        username TEXT UNIQUE, 
-        password TEXT,
-        last_poem_id INTEGER,
-        last_short_story_id INTEGER,
-        last_news_id INTEGER
-    )''')
+def insert_user_profile(user_profile):
+    up = pickle.dumps(user_profile)
+    c1.execute('UPDATE UsersTable SET user_profile = ? WHERE user_id = ?', (up, ss.user_info[0])) # 0 > user_id
+    conn1.commit()
+
+
+def get_user_profile():
+    c1.execute('SELECT user_profile FROM UsersTable WHERE user_id = ?', (ss.user_info[0],))
+    return pickle.loads(c1.fetchone()[0])
+
 
 def add_userdata(username, password): # returns whether sign up was successful
     c1.execute('SELECT * FROM UsersTable WHERE username = ?', (username,))
@@ -120,15 +141,18 @@ def add_userdata(username, password): # returns whether sign up was successful
     conn1.commit()
     return True
 
+
 def login_user(username, password):
     c1.execute('SELECT * FROM userstable WHERE username = ? AND password = ?', (username, password))
-    data = c1.fetchall()
+    data = c1.fetchall()[0]
     return data
+
 
 def view_all_users():
     c1.execute('SELECT * FROM userstable')
     data = c1.fetchall()
     return data
+
 
 def get_column_name(text_type):
     column_name = None
@@ -140,17 +164,19 @@ def get_column_name(text_type):
         column_name = 'last_news_id'
     return column_name
 
+
 def get_last(text_type):
-    c1.execute('SELECT ' + get_column_name(text_type) + ' FROM UsersTable WHERE username = ?', (ss.username,))
+    c1.execute('SELECT ' + get_column_name(text_type) + ' FROM UsersTable WHERE username = ?', (ss.user_info[1],)) # 1 > username
     return c1.fetchone()[0]
 
+
 def set_last(text_type):
-    c1.execute('UPDATE UsersTable SET ' + get_column_name(text_type) + ' = ' + str(ss.index) + ' WHERE username = ?', (ss.username,))
+    c1.execute('UPDATE UsersTable SET ' + get_column_name(text_type) + ' = ' + str(ss.index) + ' WHERE username = ?', (ss.user_info[1],)) # 1 > username
     conn1.commit()
+
     
 def reset():
-    ss.username = None 
-    ss.loggedIn = False
+    ss.user_info = None 
     ss.index = None
     ss.button_submitted = False
     ss.done_setting_up = False
@@ -160,20 +186,20 @@ def reset():
     ss.params = None
     st.experimental_rerun()
 
+
 def signup():
     st.sidebar.subheader("Create New Account")
     new_user = st.sidebar.text_input("Username")
     new_pass = st.sidebar.text_input("Password", type = "password")
 
     if st.sidebar.button("Signup"):
-        create_usertable()
         if add_userdata(new_user, new_pass):
             st.sidebar.success("Successfully created a valid account")
-            ss.username = new_user
-            ss.loggedIn = True
+            ss.user_info = login_user(new_user, new_pass)
             st.experimental_rerun()
         else:
             st.sidebar.error("Username already taken")
+
 
 def login():
     st.sidebar.subheader("Login")
@@ -181,14 +207,12 @@ def login():
     username = st.sidebar.text_input("Username")
     password = st.sidebar.text_input("Password", type = "password")
     if st.sidebar.button("Login"):
-        create_usertable()
         result = login_user(username, password)
         print("Result from login query: ", result)
         if result:
-            ss.username = username
-            ss.loggedIn = True
+            ss.user_info = result
             st.experimental_rerun()
-            #st.sidebar.success("Welcome, {}. Head back to the Home page.".format(ss.username))
+            #st.sidebar.success("Welcome, {}. Head back to the Home page.".format(ss.user_info[1])) # 1 > username
         else:
             st.sidebar.error("Error: Username/Password is incorrect")
 
@@ -234,12 +258,36 @@ def get_next_indices(difficulty, index):
     return index_list
 
 
+def display_checklist(words_to_test):
+    with st.form('checklist'):
+        st.write('**Do you know these words?**')
+        results = [None] * len(words_to_test)
+        for word, windex in zip(words_to_test, range(len(words_to_test))):
+            word_col, yes_no_col = st.beta_columns(2)
+            with word_col:
+                st.write(word)
+            with yes_no_col:
+                result = st.radio('', ['-', 'Yes', 'No', 'Not sure'], key=windex)
+                if result == 'Yes':
+                    results[windex] = 1
+                elif result == 'No':
+                    results[windex] = -1
+                else:
+                    results[windex] = 0
+                
+        if st.form_submit_button():
+            return results
+        else:
+            return None
+
 
 #TODO: add functionality for adding a new text to corpus if the user wants to
 def run_application():
-    print("running 3; Printing because loggedIn is {0} and index is {1}".format(ss.loggedIn, ss.index))
+    print("running 3; Printing because index is {}".format(ss.index))
     set_last(ss.text_type)
-    st.success("Welcome, {}!".format(ss.username))
+    st.success("Welcome, {}!".format(ss.user_info[1])) # 1 > username
+
+    print("hello, everybody:", display_checklist(['ape'] * 50))
     
     st.write(ss.index + 1, '/', ss.corpus_length)
     st.progress(ss.index / ss.corpus_length)
@@ -293,7 +341,7 @@ def run_application():
     if ss.button_submitted or submit: #TODO: make sure user doesn't get the same text twice!
         print("running 4; button pressed")
 
-        record_difficulty_and_interest(difficulty, interest, ss.username, 'english', ss.text_type,  ss.order_strings[ss.index])
+        record_difficulty_and_interest(difficulty, interest, ss.user_info[1], 'english', ss.text_type,  ss.order_strings[ss.index]) # 1 > username
 
         st.write('Here are some texts we thought would be appropriate:')
 
@@ -319,16 +367,7 @@ def run_application():
             print('running 5; button pressed')
             set_ss(explicit_index)
             ss.button_submitted = False
-            st.experimental_rerun()
-
-
-#     else: # if the button hasn't been pressed
-#         st.info("**Too Easy**: I understand the message, and I can read the text very fluently.\n\n \
-# **Just Right**: I understand the message, but there are some words I don't understand.\n\n \
-# **Too Hard**: I don't understand the message.")
-#         st.info("**Quite Boring**: I would rather do anything than read a similar text.\n\n \
-# **Somewhat Interesting**: I could keep reading something similar if I was asked to.\n\n \
-# **Very Interesting**: I want to read a similar text right now!")        
+            st.experimental_rerun()      
 
 
 if __name__ == '__main__':

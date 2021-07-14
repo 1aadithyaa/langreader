@@ -18,6 +18,7 @@ import requests
 # from gutenberg.cleanup import strip_headers
 
 import langreader.sort.vectorize as v
+import pickle
 
 order_strings = None
 corpus_length = -1
@@ -285,7 +286,13 @@ def update_titles(text_type):
     c.executemany('UPDATE Repository SET article_title = ? WHERE article_title = ? AND text_type = ?', [(title[0].strip(),title[0], text_type) for title in titles_list])
     conn.commit()
 
+def add_frequency_vectors(text_type):
+    c.execute("SELECT article_text FROM Repository WHERE language = 'english' AND text_type = ?", (text_type,))
+    text_list = c.fetchall()
+
+    c.executemany("UPDATE Repository SET frequency_vector = ? WHERE language = 'english' AND text_type = ? AND article_text = ?", ([(pickle.dumps(v.relative_frequency_vector(text[0], normalize=False, remove_stopwords=True)), text_type, text[0]) for text in text_list]))
+    conn.commit()
 
 if __name__ == '__main__':
     # testing purposes
-    reindex('short_story')
+    add_frequency_vectors('short_story')

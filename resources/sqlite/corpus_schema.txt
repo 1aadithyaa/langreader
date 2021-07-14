@@ -33,12 +33,15 @@ CREATE TABLE UserRatings(
 );
 
 CREATE TABLE UsersTable(
-    user_id INTEGER PRIMARY KEY,
-    username TEXT UNIQUE, 
-    password TEXT,
-    last_poem_id INTEGER,
-    last_short_story_id INTEGER,
-    last_news_id INTEGER
+    user_id INTEGER PRIMARY KEY, 0
+    username TEXT UNIQUE, 1
+    password TEXT, 2
+    last_poem_id INTEGER, 3
+    last_short_story_id INTEGER, 4
+    last_news_id INTEGER, 5
+    user_profile TEXT, 6
+    first_time BOOLEAN NOT NULL DEFAULT 1 CHECK (first_time IN (0, 1)), 7
+    recorded_level INTEGER 8
 );
 
 
@@ -56,6 +59,7 @@ CREATE TABLE Repository (
     added_by INTEGER, 8
     article_author TEXT, 9
     text_type TEXT, 10
+    frequency_vector TEXT, 11
 
     FOREIGN KEY (added_by) REFERENCES UsersTable (user_id) ON DELETE SET NULL
 );
