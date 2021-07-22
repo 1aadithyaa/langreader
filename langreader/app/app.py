@@ -8,13 +8,15 @@ import corpus
 from dictionary import find_def
 import pickle
 import langreader.sort.prelim_sort as ps
+import numpy as np
+import datetime
 
 # DB Management
 conn1 = sqlite3.connect("resources/sqlite/corpus.sqlite")
 c1 = conn1.cursor()
 
 # session state
-ss = session.get(user_info=None, index=None, button_submitted=False, done_setting_up=False, 
+ss = session.get(user_info=None, index=None, button_submitted=False, checklist_submitted=False, done_setting_up=False, 
     corpus_length=None, order_strings=None, text_type=None,
     params=None)
 
@@ -100,21 +102,17 @@ def main():
         
         
     else:
-        menu = ["Poems", "Short Stories", "Sign Out"]
+        menu = ["Home", "Sign Out"]
         choice = st.sidebar.selectbox("Menu", menu)
-        if choice == "Poems":
-            set_text_type('poem')
-        elif choice == "Short Stories":
-            set_text_type("short_story")
-        elif choice == "News":
-            set_text_type("news")
+        if choice == "Home":
+            pass
         elif choice == "Sign Out":
             if st.sidebar.button("Log out"):
                 reset()
         initialization()
 
-        print('user info:', ss.user_info)
-        print('params:', ss.params)
+        # print('user info:', ss.user_info)
+        # print('params:', ss.params)
         if ss.user_info[7] or ss.user_info[6] is None: # 7 > first_time; 6 > user_profile
             first_time()
         else:
@@ -138,7 +136,7 @@ def record_level(language_level):
     if level_int == -1:
         return
     c1.execute('UPDATE UsersTable SET first_time = 0, recorded_level = ? WHERE user_id = ?', (level_int, ss.user_info[0]))
-    # conn1.commit()
+    conn1.commit()
     ss.user_info[7] = 0 # 7 > first_time
     ss.user_info[8] = level_int # 8 > level_int
 
@@ -146,7 +144,7 @@ def record_level(language_level):
 def insert_user_profile(user_profile):
     up = pickle.dumps(user_profile)
     c1.execute('UPDATE UsersTable SET user_profile = ? WHERE user_id = ?', (up, ss.user_info[0])) # 0 > user_id
-    # conn1.commit()
+    conn1.commit()
     ss.user_info[6] = up # 6 > user_profile
 
 
@@ -159,7 +157,7 @@ def add_userdata(username, password): # returns whether sign up was successful
     if c1.fetchall():
         return False
     c1.execute('INSERT INTO userstable(username, password) VALUES (?,?)', (username, password))
-    # conn1.commit()
+    conn1.commit()
     return True
 
 
@@ -193,13 +191,14 @@ def get_last(text_type):
 
 def set_last(text_type):
     c1.execute('UPDATE UsersTable SET ' + get_column_name(text_type) + ' = ' + str(ss.index) + ' WHERE username = ?', (ss.user_info[1],)) # 1 > username
-    # conn1.commit()
+    conn1.commit()
 
     
 def reset():
     ss.user_info = None 
     ss.index = None
     ss.button_submitted = False
+    ss.checklist_submitted = False
     ss.done_setting_up = False
     ss.corpus_length = None
     ss.order_strings = None
@@ -238,17 +237,14 @@ def login():
             st.sidebar.error("Error: Username/Password is incorrect")
 
 # --record readability/enjoyability of text--
-def record_difficulty_and_interest(difficulty, interest, username, language, text_type, order_string):
-    c1.execute('SELECT user_id FROM UsersTable WHERE username = ?', (username, ))
-    user_id = c1.fetchone()[0]
-    c1.execute('SELECT article_id FROM Repository WHERE language = ? AND text_type = ? AND order_string = ?', (language, text_type, order_string))
-    article_id = c1.fetchone()[0]
-
+def record_difficulty_and_interest(difficulty, interest, user_id, article_id):
     difficulty_int = 1 if difficulty == 'Too Easy' else 2 if difficulty == 'Just Right' else 3 if difficulty == 'Too Hard' else -1
     interest_int = 1 if interest == 'Very Boring' else 2 if interest == 'Somewhat Interesting' else 3 if interest == 'Very Interesting' else -1
     
-    c1.execute('INSERT OR REPLACE INTO UserRatings VALUES (null, ?, ?, ?, ?)', (user_id, article_id, difficulty_int, interest_int))
-    # conn1.commit()
+    status = 1
+    date_time_completed = str(datetime.datetime.now())
+    c1.execute('INSERT OR REPLACE INTO UserRatings VALUES (null, ?, ?, ?, ?, ?, ?)', (user_id, article_id, difficulty_int, interest_int, status, date_time_completed))
+    conn1.commit()
 
 
 # --helper methods--
@@ -324,7 +320,6 @@ def first_time(): #TODO: insert plausible-sounding fake words to ensure that dat
             record_level(language_level)
             insert_user_profile(word_vector)
             st.experimental_rerun()
-    #TODO: set first time to 0, set user_profile as word_vector
 
             
 #TODO: add functionality for adding a new text to corpus if the user wants to
@@ -343,29 +338,74 @@ def home_logged_in():
     # unfinished_texts = get_unfinished_texts()
     # if unfinished_texts:
     #     st.write("**Pick Up Where You Left Off**")
+    display_recommendations(5)
+
+
+def display_recommendations(n):
     st.write("**Recommendations**")
     st.write("Poems")
-    get_recommendations("poem")
+    get_recommendations("poem", n)
     st.write("Short Stories")
-    get_recommendations("short_story")
+    get_recommendations("short_story", n)
     st.write("News")
-    get_recommendations("news")
+    get_recommendations("news", n)
 
 
-def get_recommendations(text_type):
+
+def get_recommendations(text_type, n):
     up = get_user_profile()
-    recommendations = ps.get_top_k_texts_from_user_profile(up, text_type, 10, ss.user_info[0]) # 0 > user_id
+    recommendations = ps.get_top_k_texts_from_user_profile(up, text_type, n, ss.user_info[0]) # 0 > user_id
     for text, column in zip(recommendations, st.beta_columns(len(recommendations))):
         with column:
             if st.button(text[1]): # 1 > the recommended text's title
                 ss.params = corpus.get_all_from_id(text[0]) # 0 > the recommended text's id
                 st.experimental_rerun()
 
+
+def get_weighted_random_hard_words_from_text(fv, n):
+    words = []
+    p_dist = []
+
+    for key in fv.keys():
+        log_rank = ps.rank_dictionary.get(key)
+        if not log_rank:
+            continue
+        words.append(key)
+        p_dist.append(log_rank)
+    
+    n = min(len(words), n)
+    
+    print(words)
+
+    total = sum(p_dist)
+    p_dist = [j/total for j in p_dist]
+    
+    return [i for i in np.random.choice([j for j in words], n, p=p_dist, replace=False)]
+        
+
+def update_and_record_profile(words, new_values):
+    up = pickle.loads(ss.user_info[6]) # 6 > user_profile
+    ps.update_profile(up, words, new_values)
+    insert_user_profile(up)
+
+
 def text_selected():
     # st.write(ss.index + 1, '/', ss.corpus_length)
     # st.progress(ss.index / ss.corpus_length)
+    if not ss.checklist_submitted:
+        #TODO: implement text status check
+        # if this is the first time the user has seen the text:
+
+        hard_words = get_weighted_random_hard_words_from_text(pickle.loads(ss.params[11]), 10) # 11 > frequency_vector
+        new_values = display_checklist(hard_words) # 11 > frequency_vector
+        print('hard words:', hard_words)
+        print('new values:', new_values)
+        if new_values:
+            update_and_record_profile(hard_words, new_values)
+            ss.checklist_submitted = True
+            st.experimental_rerun()
+
     st.markdown("**Please read the text carefully.**")
-    
     st.markdown("**_" + ss.params[1].strip() + "_**") # 1 > article_title
     print('author:', ss.params[9]) # 9 > article_author
     print('text:', True if ss.params[2] else False) # 2 > article_text
@@ -396,6 +436,8 @@ def text_selected():
                         word_text = find_def(word)
                         if not word_text:
                             word_text = """Error: Unable to get word's definition"""
+                        else:
+                            update_and_record_profile(v.preprocess(word), [-1])
                     except Exception:
                         word_text = """Error: Unable to get word's definition"""
                     st.markdown(word_text)
@@ -414,33 +456,37 @@ def text_selected():
     if ss.button_submitted or submit: #TODO: make sure user doesn't get the same text twice!
         print("running 4; button pressed")
 
-        record_difficulty_and_interest(difficulty, interest, ss.user_info[1], 'english', ss.text_type,  ss.order_strings[ss.index]) # 1 > username
+        record_difficulty_and_interest(difficulty, interest, ss.user_info[0], ss.params[0]) # 0 > user_id; 0 > article_id
 
-        st.write('Here are some texts we thought would be appropriate:')
+        ss.button_submitted = True
+        
+        display_recommendations(3)
 
-        next_indices = get_next_indices(difficulty, ss.index)
+        # st.write('Here are some texts we thought would be appropriate:')
 
-        ss.button_submitted = True # the button resets to False even if one of its children are pressed, so a persistent state is needed
+        # next_indices = get_next_indices(difficulty, ss.index)
 
-        for column, indix in zip(st.beta_columns(len(next_indices)), next_indices):
-            title = corpus.get_all(ss.text_type, ss.order_strings[indix])[1] # 1 > title
+        # ss.button_submitted = True # the button resets to False even if one of its children are pressed, so a persistent state is needed
 
-            with column:
-                if st.button(title): 
-                    print('running 5; button pressed')
-                    set_ss(indix)
-                    ss.button_submitted = False
-                    st.experimental_rerun()
+        # for column, indix in zip(st.beta_columns(len(next_indices)), next_indices):
+        #     title = corpus.get_all(ss.text_type, ss.order_strings[indix])[1] # 1 > title
+
+        #     with column:
+        #         if st.button(title): 
+        #             print('running 5; button pressed')
+        #             set_ss(indix)
+        #             ss.button_submitted = False
+        #             st.experimental_rerun()
         
 
-        with st.form('explicit_number'):
-            explicit_index = st.number_input('Or, go enter an index from 0 to ' + str(ss.corpus_length - 1) + ' to go to a custom text.', min_value=0, max_value=ss.corpus_length-1)
-            num_submit = st.form_submit_button()
-        if num_submit:
-            print('running 5; button pressed')
-            set_ss(explicit_index)
-            ss.button_submitted = False
-            st.experimental_rerun()      
+        # # with st.form('explicit_number'):
+        # #     explicit_index = st.number_input('Or, go enter an index from 0 to ' + str(ss.corpus_length - 1) + ' to go to a custom text.', min_value=0, max_value=ss.corpus_length-1)
+        # #     num_submit = st.form_submit_button()
+        # # if num_submit:
+        # #     print('running 5; button pressed')
+        # #     set_ss(explicit_index)
+        # #     ss.button_submitted = False
+        # #     st.experimental_rerun()      
 
 
 if __name__ == '__main__':

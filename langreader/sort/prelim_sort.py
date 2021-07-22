@@ -13,11 +13,13 @@ import time
 import pickle
 from nltk.corpus import stopwords
 import os
+import math
 
 modified_stopwords = set(v.preprocess(" ".join(stopwords.words('english'))))
 igv = v.get_indexed_global_vector(remove_stopwords=True)
 
 sgv = [word for word in sorted(igv.items(), key=lambda item: item[1][0], reverse=True)] # sorted global vector
+rank_dictionary = {k[0]: math.log(v + 1) for v, k in enumerate(sgv)}
 
 text_type_list = ['poem', 'short_story', 'news']
 words_known_list = [100, 250, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
@@ -161,6 +163,8 @@ def get_vector_sum_for_top_n(n):
 
 
 if __name__ == '__main__':
+    print(rank_dictionary)
+    quit()
     record_prelim_sort()
     for text_type in text_type_list:
         for n in words_known_list:
