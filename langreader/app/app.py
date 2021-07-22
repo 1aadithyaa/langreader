@@ -16,11 +16,11 @@ c1 = conn1.cursor()
 # session state
 ss = session.get(user_info=None, index=None, button_submitted=False, done_setting_up=False, 
     corpus_length=None, order_strings=None, text_type=None,
-    params=None) # TODO: add a language variable
+    params=None)
 
 
 def set_ss(indix):
-    ss.index = indix
+    ss.index = indix #TODO: get rid of ss.index
     ss.params = corpus.get_all(ss.text_type, ss.order_strings[indix])
 
 
@@ -35,17 +35,18 @@ def set_text_type(text_type):
 
 # initialization
 def initialization():
-    if not ss.index:
-        last_index = get_last(ss.text_type)
-        if not last_index and last_index != 0:
-            ss.corpus_length = corpus.get_corpus_length(ss.text_type)
-            ss.order_strings = corpus.get_order_strings(ss.text_type)
+    # if not ss.index:
+    #     last_index = get_last(ss.text_type)
+    #     if not last_index and last_index != 0:
+    #         ss.corpus_length = corpus.get_corpus_length(ss.text_type)
+    #         ss.order_strings = corpus.get_order_strings(ss.text_type)
 
-            lower_bound = int(ss.corpus_length*.25)
-            upper_bound = int(ss.corpus_length*.75)
-            last_index = random.choice(range(lower_bound, upper_bound))
+    #         lower_bound = int(ss.corpus_length*.25)
+    #         upper_bound = int(ss.corpus_length*.75)
+    #         last_index = random.choice(range(lower_bound, upper_bound))
 
-        set_ss(last_index)
+    #     set_ss(last_index)
+    return
 
 
 def main():
@@ -112,25 +113,45 @@ def main():
                 reset()
         initialization()
 
-        if ss.user_info[7]: # 7 > first_time
-            st.write("Hello, {}! For us to recommend you texts that accurately match your readability, we need to know a little bit more about your English language skills.".format(ss.user_info[1])) # 1 > username
-            st.write("What language level are you?")
-            language_level = st.radio("CEFR Language Levels", ["-", "A1", "A2", "B1", "B2", "C1", "C2"])
-            if language_level != "-":
-                word_vector = ps.get_baseline_profile_from_level(language_level)
-                print(display_checklist(ps.get_weighted_random_words_from_profile(word_vector, 1000, 50)))
+        print('user info:', ss.user_info)
+        print('params:', ss.params)
+        if ss.user_info[7] or ss.user_info[6] is None: # 7 > first_time; 6 > user_profile
+            first_time()
         else:
             run_application()
+
+
+def record_level(language_level):
+    level_int = -1
+    if language_level == "A1":
+        level_int = 1
+    if language_level == "A2":
+        level_int = 2
+    if language_level == "B1":
+        level_int = 3
+    if language_level == "B2":
+        level_int = 4
+    if language_level == "C1":
+        level_int = 5
+    if language_level == "C2":
+        level_int = 6
+    if level_int == -1:
+        return
+    c1.execute('UPDATE UsersTable SET first_time = 0, recorded_level = ? WHERE user_id = ?', (level_int, ss.user_info[0]))
+    # conn1.commit()
+    ss.user_info[7] = 0 # 7 > first_time
+    ss.user_info[8] = level_int # 8 > level_int
+
 
 def insert_user_profile(user_profile):
     up = pickle.dumps(user_profile)
     c1.execute('UPDATE UsersTable SET user_profile = ? WHERE user_id = ?', (up, ss.user_info[0])) # 0 > user_id
-    conn1.commit()
+    # conn1.commit()
+    ss.user_info[6] = up # 6 > user_profile
 
 
 def get_user_profile():
-    c1.execute('SELECT user_profile FROM UsersTable WHERE user_id = ?', (ss.user_info[0],))
-    return pickle.loads(c1.fetchone()[0])
+    return pickle.loads(ss.user_info[6]) # 6 > user_profile
 
 
 def add_userdata(username, password): # returns whether sign up was successful
@@ -138,14 +159,14 @@ def add_userdata(username, password): # returns whether sign up was successful
     if c1.fetchall():
         return False
     c1.execute('INSERT INTO userstable(username, password) VALUES (?,?)', (username, password))
-    conn1.commit()
+    # conn1.commit()
     return True
 
 
 def login_user(username, password):
     c1.execute('SELECT * FROM userstable WHERE username = ? AND password = ?', (username, password))
     data = c1.fetchall()[0]
-    return data
+    return list(data)
 
 
 def view_all_users():
@@ -172,7 +193,7 @@ def get_last(text_type):
 
 def set_last(text_type):
     c1.execute('UPDATE UsersTable SET ' + get_column_name(text_type) + ' = ' + str(ss.index) + ' WHERE username = ?', (ss.user_info[1],)) # 1 > username
-    conn1.commit()
+    # conn1.commit()
 
     
 def reset():
@@ -227,10 +248,18 @@ def record_difficulty_and_interest(difficulty, interest, username, language, tex
     interest_int = 1 if interest == 'Very Boring' else 2 if interest == 'Somewhat Interesting' else 3 if interest == 'Very Interesting' else -1
     
     c1.execute('INSERT OR REPLACE INTO UserRatings VALUES (null, ?, ?, ?, ?)', (user_id, article_id, difficulty_int, interest_int))
-    conn1.commit()
+    # conn1.commit()
 
 
 # --helper methods--
+def difference_bw_lists(old, new):
+    diff = {}
+    for o, n, index in zip(old, new, range(len(old))):
+        if o != n:
+            diff[index] = (o, n)
+    return diff
+
+
 def get_next_indices(difficulty, index):
     index_list = None
     if difficulty == 'Too Easy':
@@ -260,14 +289,14 @@ def get_next_indices(difficulty, index):
 
 def display_checklist(words_to_test):
     with st.form('checklist'):
-        st.write('**Do you know these words?**')
+        st.write('**Do you know these words?**\n(If you\'re not sure, you can leave it blank or select Not Sure.)')
         results = [None] * len(words_to_test)
         for word, windex in zip(words_to_test, range(len(words_to_test))):
             word_col, yes_no_col = st.beta_columns(2)
             with word_col:
                 st.write(word)
             with yes_no_col:
-                result = st.radio('', ['-', 'Yes', 'No', 'Not sure'], key=windex)
+                result = st.radio('', ['-', 'Yes', 'No', 'Not Sure'], key=windex)
                 if result == 'Yes':
                     results[windex] = 1
                 elif result == 'No':
@@ -281,16 +310,60 @@ def display_checklist(words_to_test):
             return None
 
 
+def first_time(): #TODO: insert plausible-sounding fake words to ensure that data is correct
+    st.write("Hello, {}! For us to recommend you texts that accurately match your readability, we need to know a little bit more about your English language skills.".format(ss.user_info[1])) # 1 > username
+    st.write("What language level are you?")
+    language_level = st.radio("CEFR Language Levels", ["-", "A1", "A2", "B1", "B2", "C1", "C2"])
+    if language_level != "-":
+        word_vector = ps.get_baseline_profile_from_level(language_level)
+        random_words = ps.get_weighted_random_words_from_profile(word_vector, 1000, 50)
+        new_values = display_checklist(random_words)
+        print("new_values:", new_values is not None)
+        if new_values:
+            ps.update_profile(word_vector, random_words, new_values)
+            record_level(language_level)
+            insert_user_profile(word_vector)
+            st.experimental_rerun()
+    #TODO: set first time to 0, set user_profile as word_vector
+
+            
 #TODO: add functionality for adding a new text to corpus if the user wants to
 def run_application():
     print("running 3; Printing because index is {}".format(ss.index))
-    set_last(ss.text_type)
-    st.success("Welcome, {}!".format(ss.user_info[1])) # 1 > username
+    # set_last(ss.text_type) #TODO: delete set_last
+    if ss.params: # i.e. if params exists
+        text_selected()
+    else:
+        home_logged_in()
 
-    print("hello, everybody:", display_checklist(['ape'] * 50))
-    
-    st.write(ss.index + 1, '/', ss.corpus_length)
-    st.progress(ss.index / ss.corpus_length)
+
+def home_logged_in():
+    st.success("Welcome, {}!".format(ss.user_info[1])) # 1 > username
+    # TODO: implement unfinished_texts
+    # unfinished_texts = get_unfinished_texts()
+    # if unfinished_texts:
+    #     st.write("**Pick Up Where You Left Off**")
+    st.write("**Recommendations**")
+    st.write("Poems")
+    get_recommendations("poem")
+    st.write("Short Stories")
+    get_recommendations("short_story")
+    st.write("News")
+    get_recommendations("news")
+
+
+def get_recommendations(text_type):
+    up = get_user_profile()
+    recommendations = ps.get_top_k_texts_from_user_profile(up, text_type, 10, ss.user_info[0]) # 0 > user_id
+    for text, column in zip(recommendations, st.beta_columns(len(recommendations))):
+        with column:
+            if st.button(text[1]): # 1 > the recommended text's title
+                ss.params = corpus.get_all_from_id(text[0]) # 0 > the recommended text's id
+                st.experimental_rerun()
+
+def text_selected():
+    # st.write(ss.index + 1, '/', ss.corpus_length)
+    # st.progress(ss.index / ss.corpus_length)
     st.markdown("**Please read the text carefully.**")
     
     st.markdown("**_" + ss.params[1].strip() + "_**") # 1 > article_title
@@ -327,7 +400,7 @@ def run_application():
                         word_text = """Error: Unable to get word's definition"""
                     st.markdown(word_text)
 
-    with st.form('hi'):
+    with st.form('difficulty_selector'):
         difficulty = st.select_slider(
             'How hard is this text for you?',
             options=['Too Easy', 'Just Right', 'Too Hard'])

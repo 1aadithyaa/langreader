@@ -24,6 +24,7 @@ import trafilatura
 
 import pause
 from datetime import datetime, timedelta
+import langreader.sort.vectorize as v
 
 
 # soup is the html (but transformed into a python-manipulatable object)
@@ -402,12 +403,13 @@ def scrape_news_site(url_list, language='english', text_type='news'):
 
             article = (None, title, text, link, None, None, None, language, 1, None, text_type)
             article_list.append(article)
+            print('list length:', len(article_list), flush=True)
     
     return article_list
 
 
 def ongoing_scrape():
-    with open('langreadre/scrape/rss.txt', 'r') as f:
+    with open('langreader/scrape/rss.txt', 'r') as f:
         url_list = f.readlines()
     while True:
         # go through the news list and scrape each link
@@ -430,6 +432,16 @@ def ongoing_scrape():
 
 
 if __name__ == '__main__':
-    get_times_articles()
-    get_times_for_kids_articles()
-    scrape_wikipedia()
+    with open('langreader/scrape/rss.txt', 'r') as f:
+        url_list = [string.strip() for string in f.readlines()]
+   
+    news_list = set(pickle.load(open("langreader/scrape/news_temp.p", 'rb')))
+    for news_item in news_list:
+        if news_item[2] is None:
+            continue
+        news_item_with_fv = news_item + (pickle.dumps(v.relative_frequency_vector(news_item[2], normalize=False, remove_stopwords=True)), )
+        corpus.insert(news_item_with_fv)
+    
+    corpus.conn.commit()
+    # corpus.insert_texts(list(news_list), 'news')
+    

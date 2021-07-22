@@ -35,20 +35,30 @@ def get_corpus_length(text_type, language='english'):
 def get_all_from_index(text_type, index, language='english'):
     c.execute('SELECT * FROM Repository WHERE language = ? AND text_type = ? AND order_string IS NOT null ORDER BY order_string LIMIT 1 OFFSET ?', (language, text_type, index))
     print('get_all_from_index')
-    return c.fetchone()
+    return list(c.fetchone())
 
 
 # returns a tuple of the order_string in question (faster this way)
 def get_all(text_type, order_string, language='english'):
     c.execute('SELECT * FROM Repository WHERE language = ? AND text_type = ? AND order_string = ?', (language, text_type, order_string))
     # print('get_all')
-    return c.fetchone()
+    return list(c.fetchone())
+
+
+def get_all_from_id(id):
+    c.execute('SELECT * FROM Repository WHERE article_id = ?', (id,))
+    return list(c.fetchone())
 
 
 # returns a list of order strings in order (convert index to order_string)
 def get_order_strings(text_type, language='english'):
     c.execute('SELECT order_string FROM Repository WHERE language = ? AND text_type = ? ORDER BY order_string', (language, text_type))
     print('get_order_strings')
+    return [i[0] for i in c.fetchall()]
+
+
+def get_all_texts_to_not_suggest(user_id):
+    c.execute('SELECT text_id FROM UserRatings WHERE status > 0')
     return [i[0] for i in c.fetchall()]
 
 
@@ -71,13 +81,13 @@ def resort(text_type, language = 'english'):
     conn.commit()
 
 
-# values should be an 11-tuple
+# values should be a 12-tuple
 # THIS METHOD DOES NOT COMMIT BY ITSELF; A SEPARATE CALL TO conn.commit() IS REQUIRED
 def insert(values): # returns true if command executed successfully; else returns false
     values_modified = (values[1], values[2], values[3], values[5], \
-        values[6], values[7], values[8], values[9], values[10])
+        values[6], values[7], values[8], values[9], values[10], values[11])
     try:
-        c.execute('INSERT INTO Repository VALUES (null, ?, ?, ?, datetime("now"), ?, ?, ?, ?, ?, ?)', values_modified)
+        c.execute('INSERT INTO Repository VALUES (null, ?, ?, ?, datetime("now"), ?, ?, ?, ?, ?, ?, ?)', values_modified)
         return True
     except Exception as e:
         print('insert failed:', repr(e))
@@ -295,4 +305,4 @@ def add_frequency_vectors(text_type):
 
 if __name__ == '__main__':
     # testing purposes
-    add_frequency_vectors('short_story')
+    add_frequency_vectors('poem')

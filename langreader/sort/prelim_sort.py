@@ -6,16 +6,22 @@ import sys
 sys.path.insert(0, "")
 
 import langreader.sort.vectorize as v
+import langreader.app.corpus as corpus
 import sqlite3
 import numpy as np
 import time
 import pickle
 from nltk.corpus import stopwords
+import os
 
 modified_stopwords = set(v.preprocess(" ".join(stopwords.words('english'))))
 igv = v.get_indexed_global_vector(remove_stopwords=True)
 
 sgv = [word for word in sorted(igv.items(), key=lambda item: item[1][0], reverse=True)] # sorted global vector
+
+text_type_list = ['poem', 'short_story', 'news']
+words_known_list = [100, 250, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
+
 i = 0
 
 def get_top_n_user_profile(n): # get vector where top n most frequent words have a score of 1, while the rest are -1; words unknown in the dictionary are given a score of -2
@@ -30,7 +36,7 @@ def get_top_n_user_profile(n): # get vector where top n most frequent words have
 
 def get_word_vector_from_frequency_vector(sgv, rfv):
     global i 
-    print(i)
+    print(i, end = '\r')
     i += 1
     
     wv = [0] * (len(igv) + 1)
@@ -62,9 +68,10 @@ def record_k_most_readable_texts(n, k, exec_stmt):
     c = conn.cursor()
     c.execute("SELECT * FROM Repository " + exec_stmt)
     all_texts = c.fetchall()
-    text_tuples_list = [(tuple[3], tuple[6], get_readability(up, get_word_vector_from_frequency_vector(sgv, pickle.loads(tuple[11])), curve=True)) for tuple in all_texts]
+    # print(type(all_texts))
+    text_tuples_list = [(tup[0], tup[1], get_word_vector_from_frequency_vector(sgv, pickle.loads(tup[11]))) for tup in all_texts] # 0 > article_id; 1 > article_title; 11 > frequency_vector
 
-    return sorted(text_tuples_list, key=lambda tuple: tuple[2], reverse=True)[:k]
+    return sorted(text_tuples_list, key=lambda tuple: get_readability(up, tuple[2], curve=True), reverse=True)[:k] #TODO: get rid of tuple[3], set tuple[2] as get_word_vector_from_frequency_vector(sgv, pickle.loads(tuple[11]))
 
 
 def get_baseline_profile_from_level(language_level):
@@ -107,6 +114,54 @@ def get_weighted_random_words_from_profile(user_profile, top_k, n):
     return [i for i in np.random.choice([j[1] for j in words], n, p=p_dist, replace=False)]
 
 
+def update_profile(user_profile, words_to_update, words_values):
+    for word, value in zip(words_to_update, words_values):
+        user_profile[igv[word][1]] = value
+
+
+def record_prelim_sort():
+    exec_stmt = "WHERE text_type = "
+    for text_type in text_type_list:
+        for n in words_known_list:
+            global i 
+            i = 0
+            filename = 'langreader/sort/resources/prelim/' + text_type + '/knows' + str(n) + '.prelim'
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            pickle.dump(record_k_most_readable_texts(n, 1000, exec_stmt + "'" + text_type + "'"), open(filename, 'wb'))
+
+
+def get_prelim_sort(text_type, n):
+    return pickle.load(open('langreader/sort/resources/prelim/' + text_type + '/knows' + str(n) + '.prelim', 'rb'))
+
+
+def get_top_k_texts_from_user_profile(user_profile, text_type, k, user_id):
+    user_sum = 0
+    for i in user_profile:
+        user_sum += i
+    
+    last_n = words_known_list[0]
+    for n in words_known_list:
+        if user_sum > get_vector_sum_for_top_n(n):
+            break
+        last_n = n
+    
+    prelim_sort = get_prelim_sort(text_type, last_n)
+    delete_texts = set(corpus.get_all_texts_to_not_suggest(user_id))
+
+    return [(text_tuple[0], text_tuple[1]) for text_tuple in prelim_sort if text_tuple[0] not in delete_texts][:k] # 0 > article_id; 1 > article_title
+
+
+
+def sort_with_user_profile(prelim_sort, user_profile):
+    return sorted(prelim_sort, key=lambda tuple: get_readability(user_profile, tuple[2], curve=True), reverse=True)
+
+
+def get_vector_sum_for_top_n(n):
+    return n*2 - len(igv)
+
 
 if __name__ == '__main__':
-    print(get_weighted_random_words_from_profile(get_baseline_profile_from_level("A1"), 1000, 100))
+    record_prelim_sort()
+    for text_type in text_type_list:
+        for n in words_known_list:
+            print(len(get_prelim_sort(text_type, n)))

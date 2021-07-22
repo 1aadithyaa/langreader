@@ -26,6 +26,8 @@ CREATE TABLE UserRatings(
     text_id INTEGER,
     difficulty INTEGER,
     interest INTEGER,
+    status INTEGER, # for now: 0 > not started, 1 > complete, 2 > started and incomplete, 3 > dropped
+    date_time_completed TEXT
 
     FOREIGN KEY (user_id) REFERENCES UsersTable (user_id) ON DELETE CASCADE,
     FOREIGN KEY (text_id) REFERENCES Repository (article_id) ON DELETE CASCADE,
